@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#203e36">
+  <title>对坐 · 本地双人五子棋</title>
+
+  <!-- ==================== CSS 样式区域 ==================== -->
+  <style>
+    * { box-sizing: border-box; }
+    :root { color-scheme: light; --green: #203e36; --muted: #788278; --line: #6d512f; }
+    body { margin: 0; min-height: 100vh; min-height: 100svh; background: #eef1eb; color: var(--green); font-family: system-ui, "Microsoft YaHei", sans-serif; }
+    button { font: inherit; -webkit-tap-highlight-color: transparent; }
+    .page { width: min(100% - 32px, 700px); margin: 0 auto; padding: 32px 0 24px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+    .eyebrow { font-size: 11px; letter-spacing: 3px; color: var(--muted); margin: 0 0 5px; }
+    h1 { font-family: "Songti SC", "SimSun", serif; font-size: 32px; margin: 0; font-weight: 500; letter-spacing: 4px; }
+    h1 small { font-family: system-ui, sans-serif; font-size: 12px; font-weight: 400; color: var(--muted); letter-spacing: 1px; margin-left: 10px; }
+    .reset { border: 1px solid #c4cec1; background: transparent; color: var(--green); border-radius: 9px; padding: 11px 17px; cursor: pointer; transition: background .2s; white-space: nowrap; }
+    .reset:hover { background: #e0e7dc; }
+    .statusbar { display: flex; align-items: center; justify-content: space-between; background: white; border: 1px solid #dfe5dc; padding: 15px 20px; border-radius: 12px; margin-bottom: 18px; gap: 12px; }
+    .turn { display: flex; align-items: center; gap: 11px; font-size: 15px; font-weight: 600; }
+    .turn-dot { width: 23px; height: 23px; border-radius: 50%; background: radial-gradient(circle at 32% 25%, #58615b, #151c18 70%); box-shadow: 0 2px 4px #0002; flex-shrink: 0; }
+    .turn-dot.white { background: radial-gradient(circle at 32% 25%, #fff, #e7e5db 85%); border: 1px solid #cecfc5; }
+    .moves { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .wood { background: linear-gradient(120deg, #ead2a5, #e1be85); padding: clamp(14px, 3.5vw, 29px); border: 1px solid #cdaf7c; border-radius: 12px; box-shadow: 0 15px 40px #31482c12, inset 0 0 0 5px #fff2; }
+    /* 15×15 个按钮的中心就是交叉点。线条由各按钮的伪元素拼接，边缘截去半格。 */
+    .board { display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); width: 100%; aspect-ratio: 1; --preview: #17211b; }
+    .board.white-turn { --preview: #fffdf5; }
+    .cell { appearance: none; position: relative; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; touch-action: manipulation; }
+    .cell::before, .cell .vertical { content: ""; position: absolute; pointer-events: none; background: var(--line); opacity: .75; }
+    .cell::before { left: 0; top: 50%; width: 100%; height: 1px; transform: translateY(-.5px); }
+    .cell .vertical { left: 50%; top: 0; width: 1px; height: 100%; transform: translateX(-.5px); }
+    .cell:nth-child(15n + 1)::before { left: 50%; width: 50%; }
+    .cell:nth-child(15n)::before { width: 50%; }
+    .cell:nth-child(-n + 15) .vertical { top: 50%; height: 50%; }
+    .cell:nth-child(n + 211) .vertical { height: 50%; }
+    .star { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; background: var(--line); border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+    .cell::after, .piece { position: absolute; width: 84%; height: 84%; left: 50%; top: 50%; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+    /* 预览只出现在空交叉点，游戏结束后全部关闭。 */
+    .cell::after { content: ""; background: var(--preview); opacity: 0; transition: opacity .15s; z-index: 2; }
+    @media (hover: hover) { .board:not(.finished) .cell:not(.occupied):hover::after { opacity: .32; } }
+    .board:not(.finished) .cell:not(.occupied):focus-visible::after { opacity: .32; }
+    .cell:focus-visible { outline: 2px solid #345d4e; outline-offset: -2px; border-radius: 5px; z-index: 4; }
+    .piece { z-index: 3; box-shadow: 1px 3px 4px #3e2a2940; animation: place .22s ease-out both; }
+    .piece.black { background: radial-gradient(circle at 33% 24%, #58605a, #202821 45%, #101610 95%); }
+    .piece.white { background: radial-gradient(circle at 33% 24%, white, #f7f5ed 50%, #d6d3c5 98%); border: 1px solid #b9b3a0; }
+    .cell.last .piece::after { content: ""; position: absolute; width: 16%; height: 16%; border-radius: 50%; background: #c98643; left: 42%; top: 42%; }
+    .cell.winner .piece { outline: 3px solid #f6c94e; outline-offset: 2px; box-shadow: 0 0 15px #fff9; }
+    .board.finished .cell, .cell.occupied { cursor: default; }
+    .below { display: flex; justify-content: space-between; gap: 15px; margin: 18px 1px 0; font-size: 12px; color: var(--muted); line-height: 1.8; }
+    .note { text-align: center; font-size: 12px; color: #8b9588; margin: 26px 0 0; }
+    dialog { border: 1px solid #dce3d7; border-radius: 18px; width: min(360px, calc(100% - 40px)); padding: 30px; text-align: center; color: var(--green); background: #fafcf8; box-shadow: 0 24px 80px #0003; }
+    dialog::backdrop { background: #14251f66; backdrop-filter: blur(2px); }
+    dialog h2 { font-size: 27px; margin: 10px 0; }
+    dialog p { font-size: 14px; color: var(--muted); line-height: 1.8; }
+    .dialog-icon { font-size: 32px; color: #a48036; }
+    .dialog-buttons { display: flex; gap: 10px; margin-top: 23px; }
+    .dialog-buttons button { flex: 1; }
+    .primary { border-color: var(--green); background: var(--green); color: white; }
+    .primary:hover { background: #31564a; }
+    @keyframes place { from { opacity: 0; transform: translate(-50%, -50%) scale(.75); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+    @media (max-width: 450px) { .page { width: calc(100% - 24px); padding-top: 22px; } h1 { font-size: 27px; } h1 small { display: block; margin: 6px 0 0; font-size: 11px; } .statusbar { padding: 13px 14px; } .turn { font-size: 14px; } .below { font-size: 11px; } .star { width: 5px; height: 5px; } .cell.winner .piece { outline-width: 2px; outline-offset: 1px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <!-- ==================== HTML 页面区域 ==================== -->
+  <main class="page">
+    <header>
+      <div><p class="eyebrow">A MOMENT TOGETHER</p><h1>对坐<small>本地双人五子棋</small></h1></div>
+      <button class="reset" id="reset" type="button">重置游戏</button>
+    </header>
+    <div class="statusbar">
+      <div class="turn" role="status" aria-live="polite"><span id="turnDot" class="turn-dot" aria-hidden="true"></span><span id="status">轮到黑棋落子</span></div>
+      <span class="moves" id="moves">已落 0 手</span>
+    </div>
+    <div class="wood"><div class="board" id="board" role="group" aria-label="15乘15五子棋棋盘，黑棋先行"></div></div>
+    <div class="below"><span>黑棋先行 · 交替落子 · 五子连线即胜</span><span>金色小点标记上一手</span></div>
+    <p class="note">同一块棋盘，两个人的好时光。支持点击、触摸与键盘方向键。</p>
+  </main>
+  <dialog id="result" aria-labelledby="resultTitle">
+    <span class="dialog-icon" aria-hidden="true">✦</span>
+    <h2 id="resultTitle">黑棋获胜</h2>
+    <p id="resultText">五子相连，胜负已定。</p>
+    <div class="dialog-buttons"><button class="reset" id="view" type="button">查看棋盘</button><button class="reset primary" id="again" type="button">再来一局</button></div>
+  </dialog>
+
+  <!-- ==================== JavaScript 逻辑区域 ==================== -->
+  <script>
+    'use strict';
+    const SIZE = 15;
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+    const movesEl = document.getElementById('moves');
+    const turnDot = document.getElementById('turnDot');
+    const dialog = document.getElementById('result');
+    const cells = [];
+    let board, currentPlayer, gameOver, moveCount, lastCell;
+
+    // 纯函数：从刚落下的棋子向四条轴线的两端查找，边界判断避免数组越界。
+    // 连续五颗或更多都判胜；本游戏不采用禁手规则。
+    function findWinningLine(state, row, col) {
+      const player = state[row][col];
+      if (!player) return [];
+      const inside = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+      for (const [dr, dc] of [[0, 1], [1, 0], [1, 1], [1, -1]]) {
+        const line = [[row, col]];
+        for (const sign of [-1, 1]) {
+          let r = row + dr * sign, c = col + dc * sign;
+          while (inside(r, c) && state[r][c] === player) {
+            line.push([r, c]);
+            r += dr * sign;
+            c += dc * sign;
+          }
+        }
+        if (line.length >= 5) return line;
+      }
+      return [];
+    }
+
+    // 创建225个交叉点按钮，棋子和线条均以按钮中心为基准定位。
+    function createBoard() {
+      const fragment = document.createDocumentFragment();
+      const stars = new Set(['3,3', '3,11', '7,7', '11,3', '11,11']);
+      for (let row = 0; row < SIZE; row++) {
+        for (let col = 0; col < SIZE; col++) {
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = 'cell';
+          cell.dataset.row = row;
+          cell.dataset.col = col;
+          const vertical = document.createElement('span');
+          vertical.className = 'vertical';
+          vertical.setAttribute('aria-hidden', 'true');
+          cell.append(vertical);
+          if (stars.has(`${row},${col}`)) {
+            const star = document.createElement('span');
+            star.className = 'star';
+            star.setAttribute('aria-hidden', 'true');
+            cell.append(star);
+          }
+          cells.push(cell);
+          fragment.append(cell);
+        }
+      }
+      boardEl.append(fragment);
+    }
+
+    // 重置数据与显示，不保存历史记录。
+    function resetGame() {
+      if (dialog.open) dialog.close();
+      board = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+      currentPlayer = 1; // 1代表黑棋，2代表白棋。
+      gameOver = false;
+      moveCount = 0;
+      lastCell = null;
+      boardEl.classList.remove('finished', 'white-turn');
+      turnDot.classList.remove('white');
+      statusEl.textContent = '轮到黑棋落子';
+      movesEl.textContent = '已落 0 手';
+      cells.forEach((cell, i) => {
+        cell.classList.remove('occupied', 'last', 'winner');
+        cell.querySelector('.piece')?.remove();
+        cell.tabIndex = i === 112 ? 0 : -1;
+        cell.removeAttribute('aria-disabled');
+        cell.setAttribute('aria-label', `第${Math.floor(i / SIZE) + 1}行，第${i % SIZE + 1}列，空位`);
+      });
+    }
+
+    function finishGame(winner, line) {
+      gameOver = true;
+      boardEl.classList.add('finished');
+      cells.forEach(cell => cell.setAttribute('aria-disabled', 'true'));
+      line.forEach(([r, c]) => cells[r * SIZE + c].classList.add('winner'));
+      const name = winner === 1 ? '黑棋' : '白棋';
+      statusEl.textContent = winner ? `${name}获胜！` : '棋盘已满，本局和棋';
+      document.getElementById('resultTitle').textContent = winner ? `${name}获胜！` : '本局和棋';
+      document.getElementById('resultText').textContent = winner ? '五子相连，胜负已定。金色光圈标出了获胜连线。' : '225个交叉点已落满，没有出现五子连线。';
+      // 等待浏览器完成本次绘制后弹出提示，棋局立即锁定。
+      requestAnimationFrame(() => { if (gameOver && !dialog.open) dialog.showModal(); });
+    }
+
+    function placeStone(row, col) {
+      if (gameOver || board[row][col] !== 0) return;
+      board[row][col] = currentPlayer;
+      moveCount++;
+      const cell = cells[row * SIZE + col];
+      if (lastCell) lastCell.classList.remove('last');
+      cell.classList.add('occupied', 'last');
+      lastCell = cell;
+      const piece = document.createElement('span');
+      piece.className = `piece ${currentPlayer === 1 ? 'black' : 'white'}`;
+      piece.setAttribute('aria-hidden', 'true');
+      cell.append(piece);
+      cell.setAttribute('aria-label', `第${row + 1}行，第${col + 1}列，${currentPlayer === 1 ? '黑棋' : '白棋'}`);
+      cell.setAttribute('aria-disabled', 'true');
+      movesEl.textContent = `已落 ${moveCount} 手`;
+      const winningLine = findWinningLine(board, row, col);
+      if (winningLine.length) { finishGame(currentPlayer, winningLine); return; }
+      if (moveCount === SIZE * SIZE) { finishGame(0, []); return; }
+      currentPlayer = 3 - currentPlayer;
+      boardEl.classList.toggle('white-turn', currentPlayer === 2);
+      turnDot.classList.toggle('white', currentPlayer === 2);
+      statusEl.textContent = `轮到${currentPlayer === 1 ? '黑棋' : '白棋'}落子`;
+    }
+
+    // 事件委托统一处理落子。Enter/空格使用原生按钮行为。
+    boardEl.addEventListener('click', event => {
+      const cell = event.target.closest('.cell');
+      if (!cell) return;
+      cells.forEach(item => { item.tabIndex = item === cell ? 0 : -1; });
+      placeStone(Number(cell.dataset.row), Number(cell.dataset.col));
+    });
+    boardEl.addEventListener('keydown', event => {
+      const offsets = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+      const delta = offsets[event.key];
+      const cell = event.target.closest('.cell');
+      if (!delta || !cell) return;
+      event.preventDefault();
+      const r = Math.max(0, Math.min(SIZE - 1, Number(cell.dataset.row) + delta[0]));
+      const c = Math.max(0, Math.min(SIZE - 1, Number(cell.dataset.col) + delta[1]));
+      cell.tabIndex = -1;
+      const target = cells[r * SIZE + c];
+      target.tabIndex = 0;
+      target.focus();
+    });
+    document.getElementById('reset').addEventListener('click', resetGame);
+    document.getElementById('again').addEventListener('click', resetGame);
+    document.getElementById('view').addEventListener('click', () => dialog.close());
+    createBoard();
+    resetGame();
+  </script>
+</body>
+</html>
